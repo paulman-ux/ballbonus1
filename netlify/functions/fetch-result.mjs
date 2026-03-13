@@ -1,34 +1,43 @@
 /**
  * POST /api/fetch-result
- * Fetches the latest Wednesday bonus ball from irish.national-lottery.com
- * and stores it in Netlify Blobs. Called from /admin and by scheduled functions.
+ * Reads the latest Wednesday bonus ball from a published Google Sheet CSV.
+ * Sheet has headers: drawDate, bonusBall
+ * Set LOTTO_RESULT_CSV_URL in Netlify environment variables.
  */
 import { getStore } from '@netlify/blobs'
-import { RESULTS_URL, HEADERS, parseLatestWednesday } from './parser.mjs'
 
 export default async (req) => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ ok: false, error: 'POST only' }), { status: 405 })
   }
 
+  const csvUrl = process.env.LOTTO_RESULT_CSV_URL
+  if (!csvUrl) {
+    return new Response(JSON.stringify({ ok: false, error: 'LOTTO_RESULT_CSV_URL not configured in Netlify environment variables' }), { status: 500 })
+  }
+
   try {
-    const res = await fetch(RESULTS_URL, { headers: HEADERS })
-    if (!res.ok) throw new Error(`HTTP ${res.status} from lottery site`)
+    const res = await fetch(csvUrl)
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching sheet`)
+    const csv = await res.text()
 
-    const html   = await res.text()
-    const result = parseLatestWednesday(html)
+    // Parse CSV — expect header row then data row
+    const lines = csv.trim().split('\n').map(l => l.split(',').map(s => s.trim().replace(/^"|"$/g, '')))
+    // lines[0] = ['drawDate','bonusBall'], lines[1] = ['11th March 2026','14']
+    if (lines.length < 2) throw new Error('Sheet has no data row')
 
-    if (!result) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Wednesday result not found — the draw may not be posted yet. Try again after 9:30pm or enter the bonus ball manually below."
-      }), { status: 422, headers: { 'Content-Type': 'application/json' } })
+    const [, dataRow] = lines
+    const drawDate  = dataRow[0]
+    const bonusBall = parseInt(dataRow[1], 10)
+
+    if (!drawDate || isNaN(bonusBall) || bonusBall < 1 || bonusBall > 47) {
+      return new Response(JSON.stringify({ ok: false, error: `Invalid data in sheet: date="${drawDate}" ball="${dataRow[1]}"` }), { status: 422 })
     }
 
-    // Store in Netlify Blobs
+    const result = { drawDate, bonusBall, fetchedAt: new Date().toISOString() }
+
     const store = getStore('ballbonus')
     await store.setJSON('latest-result', result)
-
     console.log('fetch-result: stored', JSON.stringify(result))
 
     return new Response(JSON.stringify({ ok: true, result }), {

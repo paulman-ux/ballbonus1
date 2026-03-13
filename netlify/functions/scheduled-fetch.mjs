@@ -1,23 +1,26 @@
 /**
- * Scheduled function — Wed 21:30 UTC (9:30pm Irish winter / 10:30pm summer)
- * Automatically fetches and stores the Wednesday bonus ball.
+ * Scheduled — Wed 21:30 UTC (9:30pm Irish winter time)
+ * Reads bonus ball from Google Sheet and stores in Netlify Blobs.
  */
 import { schedule } from '@netlify/functions'
 import { getStore } from '@netlify/blobs'
-import { RESULTS_URL, HEADERS, parseLatestWednesday } from './parser.mjs'
 
-async function run(label) {
-  const res = await fetch(RESULTS_URL, { headers: HEADERS })
+async function fetchAndStore() {
+  const csvUrl = process.env.LOTTO_RESULT_CSV_URL
+  if (!csvUrl) throw new Error('LOTTO_RESULT_CSV_URL not set')
+  const res   = await fetch(csvUrl)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const result = parseLatestWednesday(await res.text())
-  if (!result) { console.log(`${label}: result not posted yet`); return }
-  const store = getStore('ballbonus')
-  await store.setJSON('latest-result', result)
-  console.log(`${label}: stored`, JSON.stringify(result))
+  const lines = (await res.text()).trim().split('\n').map(l => l.split(',').map(s => s.trim().replace(/^"|"$/g, '')))
+  if (lines.length < 2) throw new Error('No data row in sheet')
+  const drawDate  = lines[1][0]
+  const bonusBall = parseInt(lines[1][1], 10)
+  if (!drawDate || isNaN(bonusBall)) throw new Error(`Bad data: ${lines[1]}`)
+  const result = { drawDate, bonusBall, fetchedAt: new Date().toISOString() }
+  await getStore('ballbonus').setJSON('latest-result', result)
+  console.log('scheduled-fetch: stored', JSON.stringify(result))
 }
 
-// Primary: 21:30 UTC Wednesday
 export const handler = schedule('30 21 * * 3', async () => {
-  try { await run('primary') } catch (e) { console.error('primary error:', e.message) }
+  try { await fetchAndStore() } catch (e) { console.error('scheduled-fetch error:', e.message) }
   return { statusCode: 200 }
 })

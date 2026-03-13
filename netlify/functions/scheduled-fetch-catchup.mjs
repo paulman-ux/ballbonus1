@@ -1,34 +1,26 @@
 /**
- * Catch-up scheduled function — Wed 22:30 UTC (10:30pm Irish winter)
- * Only runs if the 21:30 attempt didn't store a result yet today.
+ * Catch-up — Wed 22:30 UTC. Skips if already stored today.
  */
 import { schedule } from '@netlify/functions'
 import { getStore } from '@netlify/blobs'
-import { RESULTS_URL, HEADERS, parseLatestWednesday } from './parser.mjs'
 
 export const handler = schedule('30 22 * * 3', async () => {
   try {
-    const store = getStore('ballbonus')
-
-    // Skip if already stored today
+    const store    = getStore('ballbonus')
     const existing = await store.get('latest-result', { type: 'json' }).catch(() => null)
     if (existing?.fetchedAt) {
-      const fetched = new Date(existing.fetchedAt)
-      const now     = new Date()
-      const sameDay = fetched.getUTCFullYear() === now.getUTCFullYear() &&
-                      fetched.getUTCMonth()    === now.getUTCMonth() &&
-                      fetched.getUTCDate()     === now.getUTCDate()
-      if (sameDay) { console.log('catchup: already stored today, skipping'); return { statusCode: 200 } }
+      const f = new Date(existing.fetchedAt), n = new Date()
+      if (f.getUTCFullYear()===n.getUTCFullYear() && f.getUTCMonth()===n.getUTCMonth() && f.getUTCDate()===n.getUTCDate()) {
+        console.log('catchup: already stored today'); return { statusCode: 200 }
+      }
     }
-
-    const res = await fetch(RESULTS_URL, { headers: HEADERS })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const result = parseLatestWednesday(await res.text())
-    if (!result) { console.log('catchup: result not posted yet'); return { statusCode: 200 } }
+    const csvUrl = process.env.LOTTO_RESULT_CSV_URL
+    if (!csvUrl) throw new Error('LOTTO_RESULT_CSV_URL not set')
+    const res    = await fetch(csvUrl)
+    const lines  = (await res.text()).trim().split('\n').map(l => l.split(',').map(s => s.trim().replace(/^"|"$/g, '')))
+    const result = { drawDate: lines[1][0], bonusBall: parseInt(lines[1][1],10), fetchedAt: new Date().toISOString() }
     await store.setJSON('latest-result', result)
     console.log('catchup: stored', JSON.stringify(result))
-  } catch (e) {
-    console.error('catchup error:', e.message)
-  }
+  } catch (e) { console.error('catchup error:', e.message) }
   return { statusCode: 200 }
 })
