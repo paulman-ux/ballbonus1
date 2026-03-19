@@ -317,6 +317,8 @@ export default function App() {
       if (!inResultWindow()) return
       // Don't overwrite an already-resolved week
       if (state.resolved) return
+      // Wait until roster is loaded so pot calculation is correct
+      if (players.length === 0) return
       try {
         const r    = await fetch('/api/latest-result')
         const data = await r.json()
@@ -324,20 +326,24 @@ export default function App() {
         const { bonusBall, drawDate } = data.result
         // Don't apply if we've already applied this draw
         if (drawDate === state.lastDrawDate) return
-        // Apply the result — this updates state for this browser
-        // Admin still needs to click "Start Next Week" but the result shows for everyone
-        setState(s => {
-          const pot     = players.length * WEEKLY_FEE + s.rollover
-          const winner  = players.find(p => p.number === bonusBall)
-          return {
-            ...s,
-            winNum: bonusBall,
-            resolved: true,
-            rollover: winner ? 0 : pot,
-            lastDrawDate: drawDate,
-            history: [{ week: s.weekIndex + 1, date: new Date().toLocaleDateString('en-IE'), drawDate, bonusBall, winner: winner?.name || null, pot, rollover: !winner }, ...s.history],
-          }
-        })
+        // Calculate pot now that players are loaded
+        const currentPot = players.length * WEEKLY_FEE + state.rollover
+        const winner     = players.find(p => p.number === bonusBall)
+        setState(s => ({
+          ...s,
+          winNum: bonusBall,
+          resolved: true,
+          rollover: winner ? 0 : currentPot,
+          lastDrawDate: drawDate,
+          history: [{
+            week: s.weekIndex + 1,
+            date: new Date().toLocaleDateString('en-IE'),
+            drawDate, bonusBall,
+            winner: winner?.name || null,
+            pot: currentPot,
+            rollover: !winner,
+          }, ...s.history],
+        }))
       } catch { /* silently ignore — try again next poll */ }
     }
     checkForResult()
@@ -385,7 +391,7 @@ export default function App() {
             ) : (
               <>
                 <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: C.text }}>No winner this week</div>
-                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows to <strong style={{ color: C.orange }}>€{state.rollover.toFixed(2)}</strong></div>
+                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows to <strong style={{ color: C.orange }}>€{rollover.toFixed(2)}</strong></div>
               </>
             )}
           </div>
