@@ -25,33 +25,7 @@ const SK          = 'ballbonus_v1'
 // ─────────────────────────────────────────────
 // localStorage helpers
 // ─────────────────────────────────────────────
-const BLANK = {
-  history: [
-    {
-      week: 2,
-      date: '19/03/26',
-      drawDate: '19/03/26',
-      bonusBall: 43,
-      winner: null,
-      pot: 40.00,
-      rollover: true,
-    },
-    {
-      week: 1,
-      date: '12/03/26',
-      drawDate: '12/03/26',
-      bonusBall: 14,
-      winner: 'Liam',
-      pot: 37.50,
-      rollover: false,
-    },
-  ],
-  rollover: 40.00,
-  weekIndex: 1,
-  resolved: false,
-  winNum: null,
-  lastDrawDate: '19/03/26',
-}
+const BLANK = { history: [], rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null }
 const load  = () => { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null } catch { return null } }
 const save  = s  => { try { localStorage.setItem(SK, JSON.stringify(s)) } catch {} }
 
@@ -379,7 +353,7 @@ export default function App() {
     return () => clearInterval(id)
   }, [state.resolved, state.lastDrawDate, players])
 
-  const { history: hist, rollover, weekIndex: wi, resolved, winNum } = state
+  const { rollover, weekIndex: wi, resolved, winNum } = state
   const pot      = players.length * WEEKLY_FEE + rollover
   const bNum     = Math.floor(wi / BLOCK_WEEKS) + 1
   const wInBlk   = (wi % BLOCK_WEEKS) + 1
@@ -449,105 +423,58 @@ export default function App() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', margin: '14px 14px 0', background: C.surface, borderRadius: '12px', padding: '3px', border: `1px solid ${C.border}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-        {[['numbers','Numbers',C.blue],['history','History',C.teal]].map(([t,l,col]) => (
-          <button key={t} onClick={() => setTab(t)} style={{ flex: 1, padding: '10px 4px', borderRadius: '9px', background: tab===t ? `${col}14` : 'transparent', border: tab===t ? `1.5px solid ${col}` : '1.5px solid transparent', color: tab===t ? col : C.muted, fontWeight: tab===t ? 700 : 500, fontSize: '13px', cursor: 'pointer', transition: 'all 0.15s' }}>
-            {l}
-          </button>
-        ))}
-      </div>
-
       <div style={{ padding: '12px 14px' }}>
 
-        {/* ── Numbers tab ── */}
-        {tab === 'numbers' && (
-          <>
-            {roster === 'loading' && (
-              <div style={card({ textAlign: 'center', padding: '30px', color: C.muted })}>Loading roster…</div>
-            )}
-            {roster === 'error' && (
-              <div style={card({ border: `1px solid ${C.pink}40`, textAlign: 'center', padding: '24px' })}>
-                <div style={{ color: C.pink, fontWeight: 700, marginBottom: '6px' }}>Couldn't load roster</div>
-                <div style={{ fontSize: '13px', color: C.muted }}>Check the Google Sheet is published and GOOGLE_SHEET_CSV_URL is set in Netlify.</div>
-              </div>
-            )}
-            {roster === 'ok' && (
-              <>
-                {/* Ball board */}
-                <div style={card()}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Number Board</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', paddingBottom: '10px' }}>
-                    {Array.from({ length: TOTAL }, (_, i) => i + 1).map(n => (
-                      <Ball key={n} n={n} owner={players.find(p => p.number === n)} isWinner={winNum === n}/>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
-                    {[[C.blue,'Taken'],['#D0DAE4','Available'],[C.orange,'Winner']].map(([col,lbl]) => (
-                      <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: C.muted }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: col, border: `1px solid ${C.border}` }}/>{lbl}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Player list */}
-                <div style={card()}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Players</div>
-                  {[...players].sort((a,b) => a.number - b.number).map((p, i) => {
-                    const col = COLS[i % 4]
-                    const isW = p.number === winNum
-                    return (
-                      <div key={p.number} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', marginBottom: '7px', background: isW ? `${C.orange}0d` : C.surfaceAlt, border: isW ? `1px solid ${C.orange}55` : `1px solid ${C.border}`, borderRadius: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: `${col}14`, border: `2px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: col, fontFamily: "'DM Serif Display',serif" }}>
-                            {p.number}
-                          </div>
-                          <div style={{ fontSize: '14px', fontWeight: 600, color: isW ? C.orange : C.text }}>
-                            {p.name} {isW ? '🏆' : ''}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: '11px', color: C.muted }}>Ball #{p.number}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </>
+        {roster === 'loading' && (
+          <div style={card({ textAlign: 'center', padding: '30px', color: C.muted })}>Loading roster…</div>
         )}
-
-        {/* ── History tab ── */}
-        {tab === 'history' && (
-          hist.length === 0 ? (
-            <div style={{ ...card(), textAlign: 'center', color: C.muted, padding: '40px 20px' }}>
-              <div style={{ fontSize: '30px', marginBottom: '10px' }}>📋</div>
-              Results will appear here after each draw.
-            </div>
-          ) : hist.map((h, i) => {
-            const ac = h.rollover ? C.teal : C.orange
-            return (
-              <div key={i} style={{ ...card({ background: `${ac}07`, border: `1px solid ${ac}35` }), padding: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontSize: '10px', color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 600 }}>Week {h.week} · {h.date}</div>
-                    <div style={{ fontSize: '17px', fontFamily: "'DM Serif Display',serif", color: h.rollover ? C.teal : C.text, marginTop: '3px' }}>
-                      {h.rollover ? 'Rollover' : '🏆 ' + h.winner}
-                    </div>
-                    <div style={{ fontSize: '12px', color: C.muted, marginTop: '2px' }}>
-                      Bonus Ball <span style={{ color: ac, fontWeight: 700 }}>#{h.bonusBall}</span>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: ac }}>€{h.pot.toFixed(2)}</div>
-                    <span style={{ display: 'inline-block', fontSize: '10px', padding: '2px 8px', borderRadius: '20px', marginTop: '3px', background: `${ac}14`, color: ac, border: `1px solid ${ac}45`, letterSpacing: '1px', fontWeight: 700 }}>
-                      {h.rollover ? 'ROLLOVER' : 'WON'}
-                    </span>
-                  </div>
-                </div>
+        {roster === 'error' && (
+          <div style={card({ border: `1px solid ${C.pink}40`, textAlign: 'center', padding: '24px' })}>
+            <div style={{ color: C.pink, fontWeight: 700, marginBottom: '6px' }}>Couldn't load roster</div>
+            <div style={{ fontSize: '13px', color: C.muted }}>Check the Google Sheet is published and GOOGLE_SHEET_CSV_URL is set in Netlify.</div>
+          </div>
+        )}
+        {roster === 'ok' && (
+          <>
+            {/* Ball board */}
+            <div style={card()}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Number Board</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', paddingBottom: '10px' }}>
+                {Array.from({ length: TOTAL }, (_, i) => i + 1).map(n => (
+                  <Ball key={n} n={n} owner={players.find(p => p.number === n)} isWinner={winNum === n}/>
+                ))}
               </div>
-            )
-          })
+              <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                {[[C.blue,'Taken'],['#D0DAE4','Available'],[C.orange,'Winner']].map(([col,lbl]) => (
+                  <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: C.muted }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: col, border: `1px solid ${C.border}` }}/>{lbl}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Player list */}
+            <div style={card()}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Players</div>
+              {[...players].sort((a,b) => a.number - b.number).map((p, i) => {
+                const col = COLS[i % 4]
+                const isW = p.number === winNum
+                return (
+                  <div key={p.number} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', marginBottom: '7px', background: isW ? `${C.orange}0d` : C.surfaceAlt, border: isW ? `1px solid ${C.orange}55` : `1px solid ${C.border}`, borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: `${col}14`, border: `2px solid ${col}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: col, fontFamily: "'DM Serif Display',serif" }}>
+                        {p.number}
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: isW ? C.orange : C.text }}>
+                        {p.name} {isW ? '🏆' : ''}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '11px', color: C.muted }}>Ball #{p.number}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
 
       </div>
