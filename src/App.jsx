@@ -23,7 +23,7 @@ const WEEKLY_FEE  = BLOCK_FEE / BLOCK_WEEKS   // €2.50
 const SK          = 'ballbonus_v1'
 
 // ─────────────────────────────────────────────
-// localStorage helpers
+// localStorage
 // ─────────────────────────────────────────────
 const BLANK = { history: [], rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null }
 const load  = () => { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null } catch { return null } }
@@ -50,14 +50,14 @@ function inResultWindow() {
 const pad = v => String(v ?? 0).padStart(2, '0')
 
 // ─────────────────────────────────────────────
-// Tiny style helpers
+// Style helpers
 // ─────────────────────────────────────────────
 const card = (x = {}) => ({
   background: C.surface, border: `1px solid ${C.border}`,
   borderRadius: '14px', padding: '16px', marginBottom: '12px',
   boxShadow: '0 1px 4px rgba(0,0,0,0.06)', ...x,
 })
-const label = (col, txt) => (
+const chip = (col, txt) => (
   <span style={{ background: `${col}14`, border: `1px solid ${col}40`, borderRadius: '20px', padding: '3px 12px', fontSize: '12px', color: col, fontWeight: 600 }}>
     {txt}
   </span>
@@ -69,7 +69,7 @@ const btn = (col, text, onClick, disabled = false) => (
 )
 
 // ─────────────────────────────────────────────
-// Shared components
+// Shared UI
 // ─────────────────────────────────────────────
 function Crest() {
   return (
@@ -129,16 +129,16 @@ function Ball({ n, owner, isWinner }) {
 // Admin page (/admin)
 // ─────────────────────────────────────────────
 function AdminPage({ state, setState, players }) {
-  const [status, setStatus]   = useState('idle')  // idle|busy|ok|error|dupe
+  const [status, setStatus]   = useState('idle')
   const [msg, setMsg]         = useState('')
-  const [fetched, setFetched] = useState(null)     // { bonusBall, drawDate }
+  const [fetched, setFetched] = useState(null)
   const [manual, setManual]   = useState('')
   const [manErr, setManErr]   = useState('')
 
-  const pot     = players.length * WEEKLY_FEE + state.rollover
-  const bNum    = Math.floor(state.weekIndex / BLOCK_WEEKS) + 1
-  const wInBlk  = (state.weekIndex % BLOCK_WEEKS) + 1
-  const winner  = state.winNum ? players.find(p => p.number === state.winNum) : null
+  const pot    = players.length * WEEKLY_FEE + state.rollover
+  const bNum   = Math.floor(state.weekIndex / BLOCK_WEEKS) + 1
+  const wInBlk = (state.weekIndex % BLOCK_WEEKS) + 1
+  const winner = state.winNum ? players.find(p => p.number === state.winNum) : null
 
   async function doFetch() {
     setStatus('busy'); setMsg('Fetching from lottery site…'); setFetched(null)
@@ -152,20 +152,30 @@ function AdminPage({ state, setState, players }) {
       setFetched(data.result)
       setStatus('ok')
       setMsg(`Wednesday ${data.result.drawDate} — Bonus Ball #${data.result.bonusBall}`)
-    } catch (e) {
+    } catch {
       setStatus('error'); setMsg('Could not reach the server. Check your connection.')
     }
   }
 
   function apply(bonusBall, drawDate) {
     const w = players.find(p => p.number === bonusBall)
-    setState(s => ({
-      ...s,
-      winNum: bonusBall, resolved: true,
-      rollover: w ? 0 : pot,
-      lastDrawDate: drawDate,
-      history: [{ week: s.weekIndex + 1, date: new Date().toLocaleDateString('en-IE'), drawDate, bonusBall, winner: w?.name || null, pot, rollover: !w }, ...s.history],
-    }))
+    setState(s => {
+      const currentPot = players.length * WEEKLY_FEE + s.rollover
+      return {
+        ...s,
+        winNum: bonusBall, resolved: true,
+        rollover: w ? 0 : currentPot,
+        lastDrawDate: drawDate,
+        history: [{
+          week: s.weekIndex + 1,
+          date: new Date().toLocaleDateString('en-IE'),
+          drawDate, bonusBall,
+          winner: w?.name || null,
+          pot: currentPot,
+          rollover: !w,
+        }, ...s.history],
+      }
+    })
     setStatus('idle'); setFetched(null); setMsg('')
   }
 
@@ -198,36 +208,31 @@ function AdminPage({ state, setState, players }) {
 
       <div style={{ padding: '14px' }}>
 
-        {/* Status */}
         <div style={card()}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Current Week</div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {label(C.blue,   `Block ${bNum}`)}
-            {label(C.teal,   `Week ${wInBlk} of ${BLOCK_WEEKS}`)}
-            {label(C.orange, `Pot €${pot.toFixed(2)}`)}
-            {label(state.resolved ? C.teal : C.pink, state.resolved ? '✓ Resolved' : '● Awaiting result')}
+            {chip(C.blue,   `Block ${bNum}`)}
+            {chip(C.teal,   `Week ${wInBlk} of ${BLOCK_WEEKS}`)}
+            {chip(C.orange, `Pot €${pot.toFixed(2)}`)}
+            {chip(state.resolved ? C.teal : C.pink, state.resolved ? '✓ Resolved' : '● Awaiting result')}
           </div>
         </div>
 
         {!state.resolved ? (
           <>
-            {/* Auto fetch */}
             <div style={card({ border: `1px solid ${C.blue}28` })}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Fetch from Lottery Site</div>
               <div style={{ fontSize: '12px', color: C.muted, marginBottom: '2px' }}>Pulls the latest Wednesday result automatically.</div>
               {btn(C.blue, status === 'busy' ? '⏳  Fetching…' : '↻  Fetch Latest Result', doFetch, status === 'busy')}
-
               {msg && (
                 <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '9px', background: `${dotCol}10`, border: `1px solid ${dotCol}30`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotCol, marginTop: '3px', flexShrink: 0 }}/>
                   <div style={{ fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{msg}</div>
                 </div>
               )}
-
               {status === 'ok' && fetched && btn(C.teal, `✓  Apply Bonus Ball #${fetched.bonusBall}`, () => apply(fetched.bonusBall, fetched.drawDate))}
             </div>
 
-            {/* Manual entry */}
             <div style={card()}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>Manual Entry</div>
               <div style={{ fontSize: '12px', color: C.muted, marginBottom: '10px' }}>Use this if the fetch didn't work.</div>
@@ -245,7 +250,6 @@ function AdminPage({ state, setState, players }) {
             </div>
           </>
         ) : (
-          /* Resolved */
           <div style={card({ border: `1px solid ${C.teal}40`, background: `${C.teal}06` })}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: C.teal, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Week Resolved ✓</div>
             <div style={{ fontSize: '15px', color: C.text, lineHeight: 1.7, marginBottom: '14px' }}>
@@ -259,7 +263,6 @@ function AdminPage({ state, setState, players }) {
           </div>
         )}
 
-        {/* History */}
         {state.history.length > 0 && (
           <div style={card()}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Recent Results</div>
@@ -277,7 +280,6 @@ function AdminPage({ state, setState, players }) {
             })}
           </div>
         )}
-
       </div>
     </div>
   )
@@ -287,21 +289,18 @@ function AdminPage({ state, setState, players }) {
 // Public app
 // ─────────────────────────────────────────────
 export default function App() {
-  const [state, setState]       = useState(() => load() || BLANK)
-  const [tab, setTab]           = useState('numbers')
-  const [players, setPlayers]   = useState([])
-  const [roster, setRoster]     = useState('loading')  // loading|ok|error
+  const [state, setState]           = useState(() => load() || BLANK)
+  const [players, setPlayers]       = useState([])
+  const [roster, setRoster]         = useState('loading')
   const [showResult, setShowResult] = useState(inResultWindow)
 
   useEffect(() => save(state), [state])
 
-  // Update result window flag every minute
   useEffect(() => {
     const id = setInterval(() => setShowResult(inResultWindow()), 60000)
     return () => clearInterval(id)
   }, [])
 
-  // Load roster from Google Sheets
   useEffect(() => {
     fetch('/api/roster')
       .then(r => r.json())
@@ -309,26 +308,20 @@ export default function App() {
       .catch(() => setRoster('error'))
   }, [])
 
-  // Auto-apply result from Netlify Blobs (set by scheduled function)
-  // Polls every 5 minutes on Wed evenings. Applies for ALL users automatically.
+  // Auto-apply result stored by scheduled function — runs for ALL users
   useEffect(() => {
     async function checkForResult() {
-      // Only bother checking Wed evening through Saturday
       if (!inResultWindow()) return
-      // Don't overwrite an already-resolved week
       if (state.resolved) return
-      // Wait until roster is loaded so pot calculation is correct
       if (players.length === 0) return
       try {
         const r    = await fetch('/api/latest-result')
         const data = await r.json()
         if (!data.ok) return
         const { bonusBall, drawDate } = data.result
-        // Don't apply if we've already applied this draw
+        // Skip if already applied
         if (drawDate === state.lastDrawDate) return
-        // Also skip if history already contains this draw date
         if (state.history.some(h => h.drawDate === drawDate)) return
-        // Calculate pot now that players are loaded
         const currentPot = players.length * WEEKLY_FEE + state.rollover
         const winner     = players.find(p => p.number === bonusBall)
         setState(s => ({
@@ -346,29 +339,27 @@ export default function App() {
             rollover: !winner,
           }, ...s.history],
         }))
-      } catch { /* silently ignore — try again next poll */ }
+      } catch { /* retry next poll */ }
     }
     checkForResult()
-    const id = setInterval(checkForResult, 5 * 60 * 1000) // every 5 mins
+    const id = setInterval(checkForResult, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [state.resolved, state.lastDrawDate, players])
 
   const { rollover, weekIndex: wi, resolved, winNum } = state
-  const pot      = players.length * WEEKLY_FEE + rollover
-  const bNum     = Math.floor(wi / BLOCK_WEEKS) + 1
-  const wInBlk   = (wi % BLOCK_WEEKS) + 1
-  const winner   = winNum ? players.find(p => p.number === winNum) : null
-  const isAdmin  = window.location.pathname === '/admin'
+  const pot    = players.length * WEEKLY_FEE + rollover
+  const bNum   = Math.floor(wi / BLOCK_WEEKS) + 1
+  const wInBlk = (wi % BLOCK_WEEKS) + 1
+  const winner = winNum ? players.find(p => p.number === winNum) : null
 
-  if (isAdmin) return <AdminPage state={state} setState={setState} players={players} />
+  if (window.location.pathname === '/admin') {
+    return <AdminPage state={state} setState={setState} players={players} />
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, paddingBottom: '60px' }}>
-
-      {/* Top stripe */}
       <div style={{ height: '4px', background: `linear-gradient(90deg,${C.blue},${C.pink},${C.orange},${C.teal})` }}/>
 
-      {/* Header */}
       <div style={{ background: C.surface, padding: '20px 16px 16px', borderBottom: `1px solid ${C.border}`, boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
           <Crest/>
@@ -393,7 +384,9 @@ export default function App() {
             ) : (
               <>
                 <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: C.text }}>No winner this week</div>
-                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{rollover.toFixed(2)}</strong></div>
+                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>
+                  Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{(pot - rollover).toFixed(2)}</strong>
+                </div>
               </>
             )}
           </div>
@@ -401,7 +394,7 @@ export default function App() {
           <Countdown/>
         )}
 
-        {/* Pot info */}
+        {/* Pot box */}
         <div style={{ marginTop: '14px', textAlign: 'center' }}>
           <div style={{ display: 'inline-block', background: C.surface, border: `2px solid ${C.orange}`, borderRadius: '14px', padding: '10px 24px', boxShadow: `0 4px 16px ${C.orange}18` }}>
             <div style={{ fontSize: '10px', color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 600 }}>
@@ -414,11 +407,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* Player pills */}
         {roster === 'ok' && (
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
-            {label(C.blue, `${players.length} players`)}
-            {label(C.teal, `${TOTAL - players.length} numbers free`)}
+            {chip(C.blue, `${players.length} players`)}
+            {chip(C.teal, `${TOTAL - players.length} numbers free`)}
           </div>
         )}
       </div>
@@ -436,7 +428,6 @@ export default function App() {
         )}
         {roster === 'ok' && (
           <>
-            {/* Ball board */}
             <div style={card()}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Number Board</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', paddingBottom: '10px' }}>
@@ -453,7 +444,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Player list */}
             <div style={card()}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Players</div>
               {[...players].sort((a,b) => a.number - b.number).map((p, i) => {
@@ -476,7 +466,6 @@ export default function App() {
             </div>
           </>
         )}
-
       </div>
     </div>
   )
