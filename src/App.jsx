@@ -391,7 +391,7 @@ export default function App() {
             ) : (
               <>
                 <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: C.text }}>No winner this week</div>
-                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows to <strong style={{ color: C.orange }}>€{rollover.toFixed(2)}</strong></div>
+                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{rollover.toFixed(2)}</strong></div>
               </>
             )}
           </div>
