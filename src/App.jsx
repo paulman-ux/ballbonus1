@@ -309,6 +309,42 @@ export default function App() {
       .catch(() => setRoster('error'))
   }, [])
 
+  // Auto-apply result from Netlify Blobs (set by scheduled function)
+  // Polls every 5 minutes on Wed evenings. Applies for ALL users automatically.
+  useEffect(() => {
+    async function checkForResult() {
+      // Only bother checking Wed evening through Saturday
+      if (!inResultWindow()) return
+      // Don't overwrite an already-resolved week
+      if (state.resolved) return
+      try {
+        const r    = await fetch('/api/latest-result')
+        const data = await r.json()
+        if (!data.ok) return
+        const { bonusBall, drawDate } = data.result
+        // Don't apply if we've already applied this draw
+        if (drawDate === state.lastDrawDate) return
+        // Apply the result — this updates state for this browser
+        // Admin still needs to click "Start Next Week" but the result shows for everyone
+        setState(s => {
+          const pot     = players.length * WEEKLY_FEE + s.rollover
+          const winner  = players.find(p => p.number === bonusBall)
+          return {
+            ...s,
+            winNum: bonusBall,
+            resolved: true,
+            rollover: winner ? 0 : pot,
+            lastDrawDate: drawDate,
+            history: [{ week: s.weekIndex + 1, date: new Date().toLocaleDateString('en-IE'), drawDate, bonusBall, winner: winner?.name || null, pot, rollover: !winner }, ...s.history],
+          }
+        })
+      } catch { /* silently ignore — try again next poll */ }
+    }
+    checkForResult()
+    const id = setInterval(checkForResult, 5 * 60 * 1000) // every 5 mins
+    return () => clearInterval(id)
+  }, [state.resolved, state.lastDrawDate, players])
+
   const { history: hist, rollover, weekIndex: wi, resolved, winNum } = state
   const pot      = players.length * WEEKLY_FEE + rollover
   const bNum     = Math.floor(wi / BLOCK_WEEKS) + 1

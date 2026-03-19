@@ -10,3 +10,9 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["@netlify/blobs", "@netlify/functions"]
+
+[functions.scheduled-fetch]
+  schedule = "30 21 * * 3"
+
+[functions.scheduled-fetch-catchup]
+  schedule = "30 22 * * 3"
