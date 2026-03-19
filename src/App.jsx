@@ -25,7 +25,33 @@ const SK          = 'ballbonus_v1'
 // ─────────────────────────────────────────────
 // localStorage helpers
 // ─────────────────────────────────────────────
-const BLANK = { history: [], rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null }
+const BLANK = {
+  history: [
+    {
+      week: 2,
+      date: '19/03/26',
+      drawDate: '19/03/26',
+      bonusBall: 43,
+      winner: null,
+      pot: 40.00,
+      rollover: true,
+    },
+    {
+      week: 1,
+      date: '12/03/26',
+      drawDate: '12/03/26',
+      bonusBall: 14,
+      winner: 'Liam',
+      pot: 37.50,
+      rollover: false,
+    },
+  ],
+  rollover: 40.00,
+  weekIndex: 2,
+  resolved: false,
+  winNum: null,
+  lastDrawDate: '19/03/26',
+}
 const load  = () => { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null } catch { return null } }
 const save  = s  => { try { localStorage.setItem(SK, JSON.stringify(s)) } catch {} }
 
