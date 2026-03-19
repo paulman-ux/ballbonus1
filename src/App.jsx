@@ -47,7 +47,7 @@ const BLANK = {
     },
   ],
   rollover: 40.00,
-  weekIndex: 2,
+  weekIndex: 1,
   resolved: false,
   winNum: null,
   lastDrawDate: '19/03/26',
