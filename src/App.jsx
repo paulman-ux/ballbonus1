@@ -352,6 +352,8 @@ export default function App() {
         const { bonusBall, drawDate } = data.result
         // Don't apply if we've already applied this draw
         if (drawDate === state.lastDrawDate) return
+        // Also skip if history already contains this draw date
+        if (state.history.some(h => h.drawDate === drawDate)) return
         // Calculate pot now that players are loaded
         const currentPot = players.length * WEEKLY_FEE + state.rollover
         const winner     = players.find(p => p.number === bonusBall)

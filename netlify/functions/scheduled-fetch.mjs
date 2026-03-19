@@ -12,7 +12,12 @@ async function fetchAndStore() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const lines = (await res.text()).trim().split('\n').map(l => l.split(',').map(s => s.trim().replace(/^"|"$/g, '')))
   if (lines.length < 2) throw new Error('No data row in sheet')
-  const drawDate  = lines[1][0]
+  const rawDate   = lines[1][0]
+    // Normalise date to dd/mm/yy
+    const MONTHS = { January:'01',February:'02',March:'03',April:'04',May:'05',June:'06',July:'07',August:'08',September:'09',October:'10',November:'11',December:'12' }
+    const dm = lines[1][0].match(/(\d{1,2})(?:st|nd|rd|th)?\s+(\w+)\s+(\d{4})/)
+    const drawDate = dm ? `${dm[1].padStart(2,'0')}/${MONTHS[dm[2]] || '??'}/${dm[3].slice(2)}` : lines[1][0]
+  
   const bonusBall = parseInt(lines[1][1], 10)
   if (!drawDate || isNaN(bonusBall)) throw new Error(`Bad data: ${lines[1]}`)
   const result = { drawDate, bonusBall, fetchedAt: new Date().toISOString() }

@@ -27,8 +27,13 @@ export default async (req) => {
     if (lines.length < 2) throw new Error('Sheet has no data row')
 
     const [, dataRow] = lines
-    const drawDate  = dataRow[0]
+    const rawDate   = dataRow[0]
     const bonusBall = parseInt(dataRow[1], 10)
+
+    // Normalise date to dd/mm/yy to match app history format
+    const MONTHS = { January:'01',February:'02',March:'03',April:'04',May:'05',June:'06',July:'07',August:'08',September:'09',October:'10',November:'11',December:'12' }
+    const dm = rawDate.match(/(\d{1,2})(?:st|nd|rd|th)?\s+(\w+)\s+(\d{4})/)
+    const drawDate = dm ? `${dm[1].padStart(2,'0')}/${MONTHS[dm[2]] || '??'}/${dm[3].slice(2)}` : rawDate
 
     if (!drawDate || isNaN(bonusBall) || bonusBall < 1 || bonusBall > 47) {
       return new Response(JSON.stringify({ ok: false, error: `Invalid data in sheet: date="${drawDate}" ball="${dataRow[1]}"` }), { status: 422 })
