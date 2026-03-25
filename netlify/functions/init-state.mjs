@@ -11,7 +11,7 @@ export default async () => {
     const existing = await store.get('state', { type: 'json' }).catch(() => null)
 
     const correctState = {
-      rollover:     80,
+      rollover:     40,
       weekIndex:    2,      // week 3 is index 2 (zero-based)
       resolved:     false,
       winNum:       null,
