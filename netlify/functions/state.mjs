@@ -1,15 +1,18 @@
 /**
  * GET /api/state
  * Returns the current syndicate state from Netlify Blobs.
+ * If nothing is stored yet, returns the current real-world state.
  */
 import { getStore } from '@netlify/blobs'
 
-export const DEFAULT_STATE = {
-  rollover: 0,
-  weekIndex: 0,
+// Current real state — week 3, €80 rollover from weeks 1 & 2
+const DEFAULT_STATE = {
+  rollover: 80,
+  weekIndex: 2,
   resolved: false,
   winNum: null,
-  lastDrawDate: null,
+  lastDrawDate: '26/03/26',
+  lastResult: null,
 }
 
 export default async () => {

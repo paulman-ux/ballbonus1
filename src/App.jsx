@@ -22,7 +22,8 @@ const BLOCK_FEE   = 20
 const WEEKLY_FEE  = BLOCK_FEE / BLOCK_WEEKS
 
 const DEFAULT_STATE = {
-  rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null,
+  rollover: 0, weekIndex: 0, resolved: false,
+  winNum: null, lastDrawDate: null, lastResult: null,
 }
 
 // ─────────────────────────────────────────────
@@ -36,10 +37,13 @@ function nextWed() {
   n.setDate(now.getDate() + d)
   return n
 }
+
+// Show result banner Wed 20:00 → end of Saturday
 function inResultWindow() {
   const d = new Date().getDay(), h = new Date().getHours()
   return (d === 3 && h >= 20) || d === 4 || d === 5 || d === 6
 }
+
 const pad = v => String(v ?? 0).padStart(2, '0')
 
 // ─────────────────────────────────────────────
@@ -122,17 +126,18 @@ function Ball({ n, owner, isWinner }) {
 // Admin page (/admin)
 // ─────────────────────────────────────────────
 function AdminPage({ state, players, onStateChange }) {
-  const [status, setStatus]   = useState('idle')
-  const [msg, setMsg]         = useState('')
-  const [fetched, setFetched] = useState(null)
-  const [manual, setManual]   = useState('')
-  const [manErr, setManErr]   = useState('')
-  const [saving, setSaving]   = useState(false)
+  const [status, setStatus]               = useState('idle')
+  const [msg, setMsg]                     = useState('')
+  const [fetched, setFetched]             = useState(null)
+  const [manual, setManual]               = useState('')
+  const [manErr, setManErr]               = useState('')
+  const [rolloverInput, setRolloverInput] = useState('')
+  const [rolloverErr, setRolloverErr]     = useState('')
+  const [saving, setSaving]               = useState(false)
 
   const pot    = players.length * WEEKLY_FEE + state.rollover
   const bNum   = Math.floor(state.weekIndex / BLOCK_WEEKS) + 1
   const wInBlk = (state.weekIndex % BLOCK_WEEKS) + 1
-  const winner = state.winNum ? players.find(p => p.number === state.winNum) : null
 
   async function saveState(newState) {
     setSaving(true)
@@ -143,9 +148,7 @@ function AdminPage({ state, players, onStateChange }) {
         body: JSON.stringify({ state: newState }),
       })
       onStateChange(newState)
-    } catch (e) {
-      alert('Failed to save state: ' + e.message)
-    }
+    } catch (e) { alert('Failed to save: ' + e.message) }
     setSaving(false)
   }
 
@@ -171,10 +174,12 @@ function AdminPage({ state, players, onStateChange }) {
     const currentPot = players.length * WEEKLY_FEE + state.rollover
     const newState   = {
       ...state,
-      winNum: bonusBall,
-      resolved: true,
-      rollover: w ? 0 : currentPot,
+      rollover:     w ? 0 : currentPot,
+      weekIndex:    state.weekIndex + 1,
+      resolved:     false,
+      winNum:       null,
       lastDrawDate: drawDate,
+      lastResult:   { bonusBall, drawDate, winnerName: w?.name || null, pot: currentPot },
     }
     await saveState(newState)
     setStatus('idle'); setFetched(null); setMsg('')
@@ -183,23 +188,21 @@ function AdminPage({ state, players, onStateChange }) {
   async function applyManual() {
     setManErr('')
     const n = parseInt(manual, 10)
-    if (isNaN(n) || n < 1 || n > 47) return setManErr('Please enter a number between 1 and 47.')
+    if (isNaN(n) || n < 1 || n > 47) return setManErr('Enter a number between 1 and 47.')
     await apply(n, new Date().toLocaleDateString('en-IE'))
     setManual('')
   }
 
-  async function nextWeek() {
-    const newState = {
-      ...state,
-      resolved: false,
-      winNum: null,
-      weekIndex: state.weekIndex + 1,
-      rollover: winner ? 0 : pot,
-    }
-    await saveState(newState)
+  async function setRolloverAmount() {
+    setRolloverErr('')
+    const n = parseFloat(rolloverInput)
+    if (isNaN(n) || n < 0) return setRolloverErr('Enter a valid amount e.g. 80')
+    await saveState({ ...state, rollover: n })
+    setRolloverInput('')
   }
 
   const dotCol = { idle: C.muted, busy: C.orange, ok: C.teal, error: C.pink, dupe: C.muted }[status]
+  const lr     = state.lastResult
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, paddingBottom: '60px' }}>
@@ -215,60 +218,73 @@ function AdminPage({ state, players, onStateChange }) {
 
       <div style={{ padding: '14px' }}>
 
+        {/* Status */}
         <div style={card()}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Current Week</div>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Current State</div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {chip(C.blue,   `Block ${bNum}`)}
             {chip(C.teal,   `Week ${wInBlk} of ${BLOCK_WEEKS}`)}
+            {chip(C.orange, `Rollover €${state.rollover.toFixed(2)}`)}
             {chip(C.orange, `Pot €${pot.toFixed(2)}`)}
-            {chip(state.resolved ? C.teal : C.pink, state.resolved ? '✓ Resolved' : '● Awaiting result')}
           </div>
-        </div>
-
-        {!state.resolved ? (
-          <>
-            <div style={card({ border: `1px solid ${C.blue}28` })}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Fetch from Lottery Site</div>
-              <div style={{ fontSize: '12px', color: C.muted, marginBottom: '2px' }}>Pulls the latest Wednesday result automatically.</div>
-              {btn(C.blue, status === 'busy' ? '⏳  Fetching…' : '↻  Fetch Latest Result', doFetch, status === 'busy' || saving)}
-              {msg && (
-                <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '9px', background: `${dotCol}10`, border: `1px solid ${dotCol}30`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotCol, marginTop: '3px', flexShrink: 0 }}/>
-                  <div style={{ fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{msg}</div>
-                </div>
-              )}
-              {status === 'ok' && fetched && btn(C.teal, `✓  Apply Bonus Ball #${fetched.bonusBall}`, () => apply(fetched.bonusBall, fetched.drawDate), saving)}
-            </div>
-
-            <div style={card()}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>Manual Entry</div>
-              <div style={{ fontSize: '12px', color: C.muted, marginBottom: '10px' }}>Use this if the fetch didn't work.</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="number" min="1" max="47" placeholder="Bonus ball 1–47"
-                  value={manual} onChange={e => setManual(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && applyManual()}
-                  style={{ flex: 1, padding: '11px 14px', borderRadius: '9px', background: C.surfaceAlt, border: `1px solid ${C.border}`, color: C.text, fontSize: '14px', outline: 'none' }}
-                />
-                <button onClick={applyManual} disabled={saving} style={{ padding: '11px 20px', borderRadius: '9px', background: C.surfaceAlt, border: `1.5px solid ${C.orange}`, color: C.orange, fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
-                  Apply
-                </button>
-              </div>
-              {manErr && <div style={{ color: C.pink, fontSize: '12px', marginTop: '6px' }}>{manErr}</div>}
-            </div>
-          </>
-        ) : (
-          <div style={card({ border: `1px solid ${C.teal}40`, background: `${C.teal}06` })}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: C.teal, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Week Resolved ✓</div>
-            <div style={{ fontSize: '15px', color: C.text, lineHeight: 1.7, marginBottom: '14px' }}>
-              Bonus Ball <strong style={{ color: C.orange }}>#{state.winNum}</strong>
-              {winner
-                ? <> — 🏆 <strong>{winner.name}</strong> wins <strong style={{ color: C.orange }}>€{pot.toFixed(2)}</strong>!</>
-                : <> — No winner. <strong style={{ color: C.orange }}>€{pot.toFixed(2)}</strong> rolls over.</>
+          {lr && (
+            <div style={{ marginTop: '10px', fontSize: '13px', color: C.muted }}>
+              Last draw: <strong style={{ color: C.text }}>Ball #{lr.bonusBall}</strong> on {lr.drawDate} —{' '}
+              {lr.winnerName
+                ? <span style={{ color: C.orange }}>🏆 {lr.winnerName} won €{lr.pot.toFixed(2)}</span>
+                : <span style={{ color: C.teal }}>Rollover €{lr.pot.toFixed(2)}</span>
               }
             </div>
-            {btn(C.blue, saving ? '⏳  Saving…' : `▶  Start Week ${state.weekIndex + 2}`, nextWeek, saving)}
+          )}
+        </div>
+
+        {/* Fetch */}
+        <div style={card({ border: `1px solid ${C.blue}28` })}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Manual Fetch</div>
+          <div style={{ fontSize: '12px', color: C.muted, marginBottom: '2px' }}>Use this to fetch and apply the result immediately. The scheduled function does this automatically at 9:30pm every Wednesday.</div>
+          {btn(C.blue, status === 'busy' ? '⏳  Fetching…' : '↻  Fetch & Apply Result', doFetch, status === 'busy' || saving)}
+          {msg && (
+            <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '9px', background: `${dotCol}10`, border: `1px solid ${dotCol}30`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotCol, marginTop: '3px', flexShrink: 0 }}/>
+              <div style={{ fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{msg}</div>
+            </div>
+          )}
+          {status === 'ok' && fetched && btn(C.teal, `✓  Apply Bonus Ball #${fetched.bonusBall}`, () => apply(fetched.bonusBall, fetched.drawDate), saving)}
+        </div>
+
+        {/* Manual entry */}
+        <div style={card()}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>Manual Entry</div>
+          <div style={{ fontSize: '12px', color: C.muted, marginBottom: '10px' }}>Enter the bonus ball directly if the fetch didn't work.</div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input type="number" min="1" max="47" placeholder="Bonus ball 1–47"
+              value={manual} onChange={e => setManual(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && applyManual()}
+              style={{ flex: 1, padding: '11px 14px', borderRadius: '9px', background: C.surfaceAlt, border: `1px solid ${C.border}`, color: C.text, fontSize: '14px', outline: 'none' }}
+            />
+            <button onClick={applyManual} disabled={saving} style={{ padding: '11px 20px', borderRadius: '9px', background: C.surfaceAlt, border: `1.5px solid ${C.orange}`, color: C.orange, fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+              Apply
+            </button>
           </div>
-        )}
+          {manErr && <div style={{ color: C.pink, fontSize: '12px', marginTop: '6px' }}>{manErr}</div>}
+        </div>
+
+        {/* Correct rollover */}
+        <div style={card()}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>Correct Rollover</div>
+          <div style={{ fontSize: '12px', color: C.muted, marginBottom: '10px' }}>Fix the rollover amount if it's incorrect. Current: <strong style={{ color: C.orange }}>€{state.rollover.toFixed(2)}</strong></div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input type="number" min="0" placeholder="e.g. 80"
+              value={rolloverInput} onChange={e => setRolloverInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && setRolloverAmount()}
+              style={{ flex: 1, padding: '11px 14px', borderRadius: '9px', background: C.surfaceAlt, border: `1px solid ${C.border}`, color: C.text, fontSize: '14px', outline: 'none' }}
+            />
+            <button onClick={setRolloverAmount} disabled={saving} style={{ padding: '11px 20px', borderRadius: '9px', background: C.surfaceAlt, border: `1.5px solid ${C.teal}`, color: C.teal, fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+              Set
+            </button>
+          </div>
+          {rolloverErr && <div style={{ color: C.pink, fontSize: '12px', marginTop: '6px' }}>{rolloverErr}</div>}
+        </div>
 
       </div>
     </div>
@@ -279,19 +295,17 @@ function AdminPage({ state, players, onStateChange }) {
 // Public app
 // ─────────────────────────────────────────────
 export default function App() {
-  const [state, setState]           = useState(DEFAULT_STATE)
-  const [stateStatus, setStateStatus] = useState('loading')
-  const [players, setPlayers]       = useState([])
+  const [state, setState]               = useState(DEFAULT_STATE)
+  const [stateStatus, setStateStatus]   = useState('loading')
+  const [players, setPlayers]           = useState([])
   const [rosterStatus, setRosterStatus] = useState('loading')
-  const [showResult, setShowResult] = useState(inResultWindow)
+  const [showResult, setShowResult]     = useState(inResultWindow)
 
-  // Update result window flag every minute
   useEffect(() => {
     const id = setInterval(() => setShowResult(inResultWindow()), 60000)
     return () => clearInterval(id)
   }, [])
 
-  // Load state from Blobs
   const loadState = useCallback(async () => {
     try {
       const r    = await fetch('/api/state')
@@ -303,7 +317,13 @@ export default function App() {
 
   useEffect(() => { loadState() }, [loadState])
 
-  // Load roster from Google Sheets
+  // Poll state every 5 mins on Wed evenings to pick up scheduled result
+  useEffect(() => {
+    if (!inResultWindow()) return
+    const id = setInterval(loadState, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [loadState])
+
   useEffect(() => {
     fetch('/api/roster')
       .then(r => r.json())
@@ -311,46 +331,11 @@ export default function App() {
       .catch(() => setRosterStatus('error'))
   }, [])
 
-  // Auto-apply result stored by scheduled function — runs for ALL users
-  useEffect(() => {
-    async function checkForResult() {
-      if (!inResultWindow()) return
-      if (state.resolved) return
-      if (players.length === 0) return
-      try {
-        const r    = await fetch('/api/latest-result')
-        const data = await r.json()
-        if (!data.ok) return
-        const { bonusBall, drawDate } = data.result
-        if (drawDate === state.lastDrawDate) return
-        const currentPot = players.length * WEEKLY_FEE + state.rollover
-        const winner     = players.find(p => p.number === bonusBall)
-        const newState   = {
-          ...state,
-          winNum: bonusBall,
-          resolved: true,
-          rollover: winner ? 0 : currentPot,
-          lastDrawDate: drawDate,
-        }
-        // Save to Blobs so all browsers get the update
-        await fetch('/api/save-state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: newState }),
-        })
-        setState(newState)
-      } catch { /* retry next poll */ }
-    }
-    checkForResult()
-    const id = setInterval(checkForResult, 5 * 60 * 1000)
-    return () => clearInterval(id)
-  }, [state.resolved, state.lastDrawDate, players])
-
-  const { rollover, weekIndex: wi, resolved, winNum } = state
+  const { rollover, weekIndex: wi, lastResult } = state
   const pot    = players.length * WEEKLY_FEE + rollover
   const bNum   = Math.floor(wi / BLOCK_WEEKS) + 1
   const wInBlk = (wi % BLOCK_WEEKS) + 1
-  const winner = winNum ? players.find(p => p.number === winNum) : null
+  const lr     = lastResult
 
   if (window.location.pathname === '/admin') {
     return <AdminPage state={state} players={players} onStateChange={setState} />
@@ -378,22 +363,22 @@ export default function App() {
         </div>
 
         {/* Hero — result Wed–Sat, countdown otherwise */}
-        {resolved && showResult ? (
-          <div style={{ borderRadius: '14px', padding: '18px 16px', textAlign: 'center', background: winner ? `${C.orange}0a` : `${C.teal}0a`, border: `2px solid ${winner ? C.orange : C.teal}50` }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '3px', textTransform: 'uppercase', color: winner ? C.orange : C.teal, marginBottom: '8px' }}>
-              {winner ? "🎉 This Week's Winner" : '🔄 Rollover'}
+        {lr && showResult ? (
+          <div style={{ borderRadius: '14px', padding: '18px 16px', textAlign: 'center', background: lr.winnerName ? `${C.orange}0a` : `${C.teal}0a`, border: `2px solid ${lr.winnerName ? C.orange : C.teal}50` }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '3px', textTransform: 'uppercase', color: lr.winnerName ? C.orange : C.teal, marginBottom: '8px' }}>
+              {lr.winnerName ? "🎉 This Week's Winner" : '🔄 Rollover'}
             </div>
-            {winner ? (
+            {lr.winnerName ? (
               <>
-                <div style={{ fontSize: '26px', fontFamily: "'DM Serif Display',serif", color: C.text }}>{winner.name}</div>
-                <div style={{ fontSize: '30px', fontFamily: "'DM Serif Display',serif", color: C.orange, marginTop: '2px' }}>€{pot.toFixed(2)}</div>
-                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Bonus Ball <strong style={{ color: C.orange }}>#{winNum}</strong></div>
+                <div style={{ fontSize: '26px', fontFamily: "'DM Serif Display',serif", color: C.text }}>{lr.winnerName}</div>
+                <div style={{ fontSize: '30px', fontFamily: "'DM Serif Display',serif", color: C.orange, marginTop: '2px' }}>€{lr.pot.toFixed(2)}</div>
+                <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>Bonus Ball <strong style={{ color: C.orange }}>#{lr.bonusBall}</strong></div>
               </>
             ) : (
               <>
                 <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: C.text }}>No winner this week</div>
                 <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>
-                  Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{(players.length * WEEKLY_FEE).toFixed(2)}</strong>
+                  Ball <strong style={{ color: C.teal }}>#{lr.bonusBall}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{(players.length * WEEKLY_FEE).toFixed(2)}</strong>
                 </div>
               </>
             )}
@@ -406,10 +391,10 @@ export default function App() {
         <div style={{ marginTop: '14px', textAlign: 'center' }}>
           <div style={{ display: 'inline-block', background: C.surface, border: `2px solid ${C.orange}`, borderRadius: '14px', padding: '10px 24px', boxShadow: `0 4px 16px ${C.orange}18` }}>
             <div style={{ fontSize: '10px', color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 600 }}>
-              {rollover > 0 && !resolved ? 'Rollover Jackpot' : resolved ? (winner ? 'Won This Week' : 'Rolled Over') : "This Week's Pot"}
+              {rollover > 0 ? 'Rollover Jackpot' : "This Week's Pot"}
             </div>
             <div style={{ fontSize: '28px', fontFamily: "'DM Serif Display',serif", color: C.orange }}>
-              {rollover > 0 && !resolved ? '🔄 ' : ''}€{pot.toFixed(2)}
+              {rollover > 0 ? '🔄 ' : ''}€{pot.toFixed(2)}
             </div>
             <div style={{ fontSize: '11px', color: C.muted }}>Block {bNum} · Week {wInBlk} of {BLOCK_WEEKS} · €{BLOCK_FEE}/block</div>
           </div>
@@ -439,7 +424,7 @@ export default function App() {
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Number Board</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', paddingBottom: '10px' }}>
                 {Array.from({ length: TOTAL }, (_, i) => i + 1).map(n => (
-                  <Ball key={n} n={n} owner={players.find(p => p.number === n)} isWinner={winNum === n}/>
+                  <Ball key={n} n={n} owner={players.find(p => p.number === n)} isWinner={lr?.bonusBall === n && showResult}/>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
@@ -455,7 +440,7 @@ export default function App() {
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Players</div>
               {[...players].sort((a,b) => a.number - b.number).map((p, i) => {
                 const col = COLS[i % 4]
-                const isW = p.number === winNum
+                const isW = lr?.bonusBall === p.number && showResult
                 return (
                   <div key={p.number} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', marginBottom: '7px', background: isW ? `${C.orange}0d` : C.surfaceAlt, border: isW ? `1px solid ${C.orange}55` : `1px solid ${C.border}`, borderRadius: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

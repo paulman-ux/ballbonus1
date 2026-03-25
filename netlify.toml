@@ -16,3 +16,6 @@
 
 [functions.scheduled-fetch-catchup]
   schedule = "30 22 * * 3"
+
+[functions.scheduled-new-week]
+  schedule = "0 8 * * 0"
