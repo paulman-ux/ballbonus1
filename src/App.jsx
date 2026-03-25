@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 // ─────────────────────────────────────────────
 // Constants & palette
@@ -19,15 +19,11 @@ const COLS        = [C.blue, C.pink, C.orange, C.teal]
 const TOTAL       = 47
 const BLOCK_WEEKS = 8
 const BLOCK_FEE   = 20
-const WEEKLY_FEE  = BLOCK_FEE / BLOCK_WEEKS   // €2.50
-const SK          = 'ballbonus_v1'
+const WEEKLY_FEE  = BLOCK_FEE / BLOCK_WEEKS
 
-// ─────────────────────────────────────────────
-// localStorage
-// ─────────────────────────────────────────────
-const BLANK = { history: [], rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null }
-const load  = () => { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null } catch { return null } }
-const save  = s  => { try { localStorage.setItem(SK, JSON.stringify(s)) } catch {} }
+const DEFAULT_STATE = {
+  rollover: 0, weekIndex: 0, resolved: false, winNum: null, lastDrawDate: null,
+}
 
 // ─────────────────────────────────────────────
 // Time helpers
@@ -40,13 +36,10 @@ function nextWed() {
   n.setDate(now.getDate() + d)
   return n
 }
-
-// Show result banner Wed 20:00 → end of Saturday
 function inResultWindow() {
   const d = new Date().getDay(), h = new Date().getHours()
   return (d === 3 && h >= 20) || d === 4 || d === 5 || d === 6
 }
-
 const pad = v => String(v ?? 0).padStart(2, '0')
 
 // ─────────────────────────────────────────────
@@ -128,17 +121,33 @@ function Ball({ n, owner, isWinner }) {
 // ─────────────────────────────────────────────
 // Admin page (/admin)
 // ─────────────────────────────────────────────
-function AdminPage({ state, setState, players }) {
+function AdminPage({ state, players, onStateChange }) {
   const [status, setStatus]   = useState('idle')
   const [msg, setMsg]         = useState('')
   const [fetched, setFetched] = useState(null)
   const [manual, setManual]   = useState('')
   const [manErr, setManErr]   = useState('')
+  const [saving, setSaving]   = useState(false)
 
   const pot    = players.length * WEEKLY_FEE + state.rollover
   const bNum   = Math.floor(state.weekIndex / BLOCK_WEEKS) + 1
   const wInBlk = (state.weekIndex % BLOCK_WEEKS) + 1
   const winner = state.winNum ? players.find(p => p.number === state.winNum) : null
+
+  async function saveState(newState) {
+    setSaving(true)
+    try {
+      await fetch('/api/save-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: newState }),
+      })
+      onStateChange(newState)
+    } catch (e) {
+      alert('Failed to save state: ' + e.message)
+    }
+    setSaving(false)
+  }
 
   async function doFetch() {
     setStatus('busy'); setMsg('Fetching from lottery site…'); setFetched(null)
@@ -157,39 +166,37 @@ function AdminPage({ state, setState, players }) {
     }
   }
 
-  function apply(bonusBall, drawDate) {
-    const w = players.find(p => p.number === bonusBall)
-    setState(s => {
-      const currentPot = players.length * WEEKLY_FEE + s.rollover
-      return {
-        ...s,
-        winNum: bonusBall, resolved: true,
-        rollover: w ? 0 : currentPot,
-        lastDrawDate: drawDate,
-        history: [{
-          week: s.weekIndex + 1,
-          date: new Date().toLocaleDateString('en-IE'),
-          drawDate, bonusBall,
-          winner: w?.name || null,
-          pot: currentPot,
-          rollover: !w,
-        }, ...s.history],
-      }
-    })
+  async function apply(bonusBall, drawDate) {
+    const w          = players.find(p => p.number === bonusBall)
+    const currentPot = players.length * WEEKLY_FEE + state.rollover
+    const newState   = {
+      ...state,
+      winNum: bonusBall,
+      resolved: true,
+      rollover: w ? 0 : currentPot,
+      lastDrawDate: drawDate,
+    }
+    await saveState(newState)
     setStatus('idle'); setFetched(null); setMsg('')
   }
 
-  function applyManual() {
+  async function applyManual() {
     setManErr('')
     const n = parseInt(manual, 10)
     if (isNaN(n) || n < 1 || n > 47) return setManErr('Please enter a number between 1 and 47.')
-    apply(n, new Date().toLocaleDateString('en-IE'))
+    await apply(n, new Date().toLocaleDateString('en-IE'))
     setManual('')
   }
 
-  function nextWeek() {
-    setState(s => ({ ...s, resolved: false, winNum: null, weekIndex: s.weekIndex + 1, rollover: winner ? 0 : pot }))
-    setStatus('idle'); setFetched(null); setMsg('')
+  async function nextWeek() {
+    const newState = {
+      ...state,
+      resolved: false,
+      winNum: null,
+      weekIndex: state.weekIndex + 1,
+      rollover: winner ? 0 : pot,
+    }
+    await saveState(newState)
   }
 
   const dotCol = { idle: C.muted, busy: C.orange, ok: C.teal, error: C.pink, dupe: C.muted }[status]
@@ -223,14 +230,14 @@ function AdminPage({ state, setState, players }) {
             <div style={card({ border: `1px solid ${C.blue}28` })}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Fetch from Lottery Site</div>
               <div style={{ fontSize: '12px', color: C.muted, marginBottom: '2px' }}>Pulls the latest Wednesday result automatically.</div>
-              {btn(C.blue, status === 'busy' ? '⏳  Fetching…' : '↻  Fetch Latest Result', doFetch, status === 'busy')}
+              {btn(C.blue, status === 'busy' ? '⏳  Fetching…' : '↻  Fetch Latest Result', doFetch, status === 'busy' || saving)}
               {msg && (
                 <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '9px', background: `${dotCol}10`, border: `1px solid ${dotCol}30`, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotCol, marginTop: '3px', flexShrink: 0 }}/>
                   <div style={{ fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{msg}</div>
                 </div>
               )}
-              {status === 'ok' && fetched && btn(C.teal, `✓  Apply Bonus Ball #${fetched.bonusBall}`, () => apply(fetched.bonusBall, fetched.drawDate))}
+              {status === 'ok' && fetched && btn(C.teal, `✓  Apply Bonus Ball #${fetched.bonusBall}`, () => apply(fetched.bonusBall, fetched.drawDate), saving)}
             </div>
 
             <div style={card()}>
@@ -242,7 +249,7 @@ function AdminPage({ state, setState, players }) {
                   onKeyDown={e => e.key === 'Enter' && applyManual()}
                   style={{ flex: 1, padding: '11px 14px', borderRadius: '9px', background: C.surfaceAlt, border: `1px solid ${C.border}`, color: C.text, fontSize: '14px', outline: 'none' }}
                 />
-                <button onClick={applyManual} style={{ padding: '11px 20px', borderRadius: '9px', background: C.surfaceAlt, border: `1.5px solid ${C.orange}`, color: C.orange, fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+                <button onClick={applyManual} disabled={saving} style={{ padding: '11px 20px', borderRadius: '9px', background: C.surfaceAlt, border: `1.5px solid ${C.orange}`, color: C.orange, fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
                   Apply
                 </button>
               </div>
@@ -259,27 +266,10 @@ function AdminPage({ state, setState, players }) {
                 : <> — No winner. <strong style={{ color: C.orange }}>€{pot.toFixed(2)}</strong> rolls over.</>
               }
             </div>
-            {btn(C.blue, `▶  Start Week ${state.weekIndex + 2}`, nextWeek)}
+            {btn(C.blue, saving ? '⏳  Saving…' : `▶  Start Week ${state.weekIndex + 2}`, nextWeek, saving)}
           </div>
         )}
 
-        {state.history.length > 0 && (
-          <div style={card()}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: C.muted, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '10px' }}>Recent Results</div>
-            {state.history.slice(0, 6).map((h, i) => {
-              const ac = h.rollover ? C.teal : C.orange
-              return (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: i < Math.min(state.history.length, 6) - 1 ? `1px solid ${C.border}` : 'none' }}>
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: C.text }}>{h.rollover ? 'Rollover' : '🏆 ' + h.winner}</div>
-                    <div style={{ fontSize: '11px', color: C.muted }}>Week {h.week} · Ball #{h.bonusBall} · {h.date}</div>
-                  </div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: ac }}>€{h.pot.toFixed(2)}</div>
-                </div>
-              )
-            })}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -289,23 +279,36 @@ function AdminPage({ state, setState, players }) {
 // Public app
 // ─────────────────────────────────────────────
 export default function App() {
-  const [state, setState]           = useState(() => load() || BLANK)
+  const [state, setState]           = useState(DEFAULT_STATE)
+  const [stateStatus, setStateStatus] = useState('loading')
   const [players, setPlayers]       = useState([])
-  const [roster, setRoster]         = useState('loading')
+  const [rosterStatus, setRosterStatus] = useState('loading')
   const [showResult, setShowResult] = useState(inResultWindow)
 
-  useEffect(() => save(state), [state])
-
+  // Update result window flag every minute
   useEffect(() => {
     const id = setInterval(() => setShowResult(inResultWindow()), 60000)
     return () => clearInterval(id)
   }, [])
 
+  // Load state from Blobs
+  const loadState = useCallback(async () => {
+    try {
+      const r    = await fetch('/api/state')
+      const data = await r.json()
+      if (data.ok) { setState(data.state); setStateStatus('ok') }
+      else setStateStatus('error')
+    } catch { setStateStatus('error') }
+  }, [])
+
+  useEffect(() => { loadState() }, [loadState])
+
+  // Load roster from Google Sheets
   useEffect(() => {
     fetch('/api/roster')
       .then(r => r.json())
-      .then(d => { if (d.ok) { setPlayers(d.participants); setRoster('ok') } else setRoster('error') })
-      .catch(() => setRoster('error'))
+      .then(d => { if (d.ok) { setPlayers(d.participants); setRosterStatus('ok') } else setRosterStatus('error') })
+      .catch(() => setRosterStatus('error'))
   }, [])
 
   // Auto-apply result stored by scheduled function — runs for ALL users
@@ -319,26 +322,23 @@ export default function App() {
         const data = await r.json()
         if (!data.ok) return
         const { bonusBall, drawDate } = data.result
-        // Skip if already applied
         if (drawDate === state.lastDrawDate) return
-        if (state.history.some(h => h.drawDate === drawDate)) return
         const currentPot = players.length * WEEKLY_FEE + state.rollover
         const winner     = players.find(p => p.number === bonusBall)
-        setState(s => ({
-          ...s,
+        const newState   = {
+          ...state,
           winNum: bonusBall,
           resolved: true,
           rollover: winner ? 0 : currentPot,
           lastDrawDate: drawDate,
-          history: [{
-            week: s.weekIndex + 1,
-            date: new Date().toLocaleDateString('en-IE'),
-            drawDate, bonusBall,
-            winner: winner?.name || null,
-            pot: currentPot,
-            rollover: !winner,
-          }, ...s.history],
-        }))
+        }
+        // Save to Blobs so all browsers get the update
+        await fetch('/api/save-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: newState }),
+        })
+        setState(newState)
       } catch { /* retry next poll */ }
     }
     checkForResult()
@@ -353,7 +353,15 @@ export default function App() {
   const winner = winNum ? players.find(p => p.number === winNum) : null
 
   if (window.location.pathname === '/admin') {
-    return <AdminPage state={state} setState={setState} players={players} />
+    return <AdminPage state={state} players={players} onStateChange={setState} />
+  }
+
+  if (stateStatus === 'loading') {
+    return (
+      <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: C.muted, fontSize: '14px' }}>Loading…</div>
+      </div>
+    )
   }
 
   return (
@@ -385,7 +393,7 @@ export default function App() {
               <>
                 <div style={{ fontSize: '20px', fontFamily: "'DM Serif Display',serif", color: C.text }}>No winner this week</div>
                 <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>
-                  Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{(pot - rollover).toFixed(2)}</strong>
+                  Ball <strong style={{ color: C.teal }}>#{winNum}</strong> wasn't picked — pot grows by <strong style={{ color: C.orange }}>€{(players.length * WEEKLY_FEE).toFixed(2)}</strong>
                 </div>
               </>
             )}
@@ -407,7 +415,7 @@ export default function App() {
           </div>
         </div>
 
-        {roster === 'ok' && (
+        {rosterStatus === 'ok' && (
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
             {chip(C.blue, `${players.length} players`)}
             {chip(C.teal, `${TOTAL - players.length} numbers free`)}
@@ -416,17 +424,16 @@ export default function App() {
       </div>
 
       <div style={{ padding: '12px 14px' }}>
-
-        {roster === 'loading' && (
+        {rosterStatus === 'loading' && (
           <div style={card({ textAlign: 'center', padding: '30px', color: C.muted })}>Loading roster…</div>
         )}
-        {roster === 'error' && (
+        {rosterStatus === 'error' && (
           <div style={card({ border: `1px solid ${C.pink}40`, textAlign: 'center', padding: '24px' })}>
             <div style={{ color: C.pink, fontWeight: 700, marginBottom: '6px' }}>Couldn't load roster</div>
             <div style={{ fontSize: '13px', color: C.muted }}>Check the Google Sheet is published and GOOGLE_SHEET_CSV_URL is set in Netlify.</div>
           </div>
         )}
-        {roster === 'ok' && (
+        {rosterStatus === 'ok' && (
           <>
             <div style={card()}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: C.blue, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Number Board</div>
